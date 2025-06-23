@@ -1,42 +1,10 @@
-// pipeline {
-//     agent any
-
-//     stages {
-//         stage('Install dependencies') {
-//             steps {
-//                 sh 'cd frontend && npm ci'
-//                 sh 'cd backend && npm ci'
-//             }
-//         }
-//         stage('Build frontend') {
-//             steps {
-//                 sh 'cd frontend && npm run build'
-//             }
-//         }
-//         stage('Build backend') {
-//             steps {
-//                 sh 'cd backend && npm run build'
-//             }
-//         }
-//         stage('Test') {
-//             steps {
-//                 sh 'cd frontend && npm test'
-//                 sh 'cd backend && npm test'
-//             }
-//         }
-//     }
-// }
-
-
 pipeline {
     agent any
 
     environment {
-        NODE_ENV = 'development'
-    }
-
-    tools {
-        nodejs 'node24' // เปลี่ยนชื่อให้ตรงกับ Jenkins
+        REMOTE_USER = 'deployuser'
+        REMOTE_HOST = '203.159.95.168'
+        REMOTE_DIR = '/home/deployuser/prj-test-01'
     }
 
     stages {
@@ -46,32 +14,30 @@ pipeline {
             }
         }
 
-        stage('Install Dependencies') {
-            steps {
-                sh 'npm install'
-            }
-        }
-
-        stage('Build') {
-            when {
-                expression { fileExists('package.json') && sh(script: "npm run | grep build", returnStatus: true) == 0 }
-            }
-            steps {
-                sh 'npm run build'
-            }
-        }
-
         stage('Deploy to VPS') {
-            when {
-                branch 'master'
-            }
             steps {
                 sshagent(credentials: ['vps-key']) {
                     sh """
-                        echo "📦 Copying files to VPS..."
-                        scp -r * root@203.159.95.168:/home/qler/prj-test-01
+                        echo "📤 Copying project to VPS..."
 
-                        echo "✅ Deployed to VPS successfully."
+                        ssh ${REMOTE_USER}@${REMOTE_HOST} 'mkdir -p ${REMOTE_DIR}'
+                        scp -r . ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}
+                    """
+                }
+            }
+        }
+
+        stage('Docker Compose Up') {
+            steps {
+                sshagent(credentials: ['vps-key']) {
+                    sh """
+                        echo "🚀 Building and running frontend + backend via docker-compose on VPS..."
+
+                        ssh ${REMOTE_USER}@${REMOTE_HOST} '
+                            cd ${REMOTE_DIR} &&
+                            docker-compose down &&
+                            docker-compose up -d --build
+                        '
                     """
                 }
             }
@@ -80,10 +46,10 @@ pipeline {
 
     post {
         success {
-            echo '🎉 Pipeline completed successfully!'
+            echo '✅ Deploy frontend + backend สำเร็จ'
         }
         failure {
-            echo '💥 Pipeline failed!'
+            echo '❌ Pipeline Failed!'
         }
     }
 }
